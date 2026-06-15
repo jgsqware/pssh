@@ -1,0 +1,45 @@
+# mise — tool versions + tasks for pssh.  Run `mise tasks` to list, `mise run <task>`.
+[tools]
+go = "1.26.4"
+golangci-lint = "2.12.2"
+
+[env]
+# Build output stays out of the repo (see .gitignore).
+BIN = "bin/pssh"
+
+[tasks.build]
+description = "Build the pssh binary into bin/"
+run = "go build -o $BIN ."
+
+[tasks.install]
+description = "Install pssh to ~/.local/bin (shadows the legacy pssh.sh on PATH)"
+run = "go build -o $HOME/.local/bin/pssh ."
+
+[tasks.test]
+description = "Run all tests"
+run = "go test ./..."
+
+[tasks.vet]
+description = "go vet"
+run = "go vet ./..."
+
+[tasks.fmt]
+description = "Format sources"
+run = "gofmt -w ."
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run"
+
+[tasks.check]
+description = "Format, vet, lint, and test"
+depends = ["fmt", "vet", "lint", "test"]
+
+[tasks.doctor]
+description = "Build then run pssh doctor"
+depends = ["build"]
+run = "$BIN doctor"
+
+[tasks.test-docker]
+description = "Build + run the dockerized install/e2e test (real sshd, fake passbolt)"
+run = "docker build -f test/Dockerfile -t pssh-test . && docker run --rm pssh-test"
