@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pssh — Passbolt-aware SSH launcher</title>
+<meta name="description" content="Pick a host; pssh resolves its Passbolt password and logs you in — never typed, never on the clipboard.">
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#c9d1d9;
+    --dim:#8b949e; --accent:#3fb950; --blue:#58a6ff; --purple:#d2a8ff; --pink:#ff79c6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#16203022,transparent),var(--bg);
+    color:var(--fg);font:16px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  code,pre,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  a{color:var(--blue);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:860px;margin:0 auto;padding:0 20px}
+  header{text-align:center;padding:64px 20px 8px}
+  h1{font-size:54px;margin:0;letter-spacing:-1px}
+  .tag{color:var(--dim);font-size:19px;max-width:620px;margin:14px auto 0}
+  .badges{margin:18px 0 6px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+  .badge{font-size:13px;color:var(--dim);border:1px solid var(--border);border-radius:999px;padding:4px 12px;background:var(--panel)}
+  .cta{margin-top:22px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn{display:inline-block;padding:11px 20px;border-radius:8px;font-weight:600;border:1px solid var(--border)}
+  .btn.primary{background:var(--accent);color:#04130a;border-color:transparent}
+  .btn.ghost{background:var(--panel);color:var(--fg)}
+  .demo{margin:40px auto;max-width:780px}
+  .demo img{width:100%;border-radius:12px;border:1px solid var(--border);display:block}
+  h2{font-size:26px;margin:52px 0 14px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}h1{font-size:40px}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
+  .card b{color:var(--fg)}
+  .card p{margin:6px 0 0;color:var(--dim);font-size:15px}
+  pre{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow:auto;font-size:14px}
+  pre .c{color:var(--dim)}
+  pre .g{color:var(--accent)}
+  table{width:100%;border-collapse:collapse;font-size:15px}
+  td,th{border:1px solid var(--border);padding:8px 12px;text-align:left}
+  th{background:var(--panel);color:var(--dim);font-weight:600}
+  footer{color:var(--dim);text-align:center;padding:48px 20px 64px;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>pssh</h1>
+    <p class="tag"><b style="color:var(--fg)">Passbolt-aware SSH launcher.</b>
+      Pick a host, and pssh resolves its Passbolt password and logs you in —
+      never typed, never on the clipboard.</p>
+    <div class="badges">
+      <span class="badge">Go · zero deps</span>
+      <span class="badge">SSH_ASKPASS delivery</span>
+      <span class="badge">gum · passbolt</span>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/jgsqware/pssh">View on GitHub</a>
+      <a class="btn ghost" href="#install">Install</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="demo"><img src="demo/demo.svg" alt="pssh demo"></div>
+
+  <h2>Why</h2>
+  <div class="grid">
+    <div class="card"><b>No secret in the clear</b><p>The password is fed to <code>ssh</code> via <code>SSH_ASKPASS</code> — never shown, copied, in argv, or in your shell history.</p></div>
+    <div class="card"><b>Your ssh config, untouched</b><p>It execs the real <code>ssh</code>, so ProxyJump, ControlMaster, and agent forwarding all still apply.</p></div>
+    <div class="card"><b>Remembers links</b><p>First connect to a host, pick its Passbolt resource, and pssh stores the association for next time.</p></div>
+    <div class="card"><b>Plugins</b><p><code>pssh &lt;name&gt; &lt;host&gt;</code> runs a <code>pssh-&lt;name&gt;</code> tool with auth wired up — like <code>pg</code>, below.</p></div>
+  </div>
+
+  <h2 id="install">Install</h2>
+<pre class="mono"><span class="c"># clone &amp; install the binary + bundled plugins</span>
+git clone https://github.com/jgsqware/pssh &amp;&amp; cd pssh
+mise run setup
+
+<span class="c"># or just the binary</span>
+go build -o ~/.local/bin/pssh .</pre>
+
+  <h2>Usage</h2>
+<pre class="mono">pssh                  <span class="c"># pick a host, then connect</span>
+pssh app-prod-1  <span class="c"># connect straight to a host</span>
+pssh link &lt;host&gt;      <span class="c"># (re)assign the Passbolt resource</span>
+pssh pg &lt;host&gt;        <span class="c"># plugin: tunnel a container DB → lazysql</span>
+pssh doctor           <span class="c"># check deps + passbolt connectivity</span></pre>
+
+  <h2>The <span class="mono">pg</span> plugin</h2>
+  <p style="color:var(--dim)">Pick a remote Docker container, extract its DB connection string,
+    tunnel it locally, and open <a href="https://github.com/jorgerojas26/lazysql">lazysql</a> — with the SSH password supplied automatically.</p>
+  <div class="demo"><img src="demo/pg.svg" alt="pssh pg demo"></div>
+
+  <h2>How it works</h2>
+  <table>
+    <tr><th>Step</th><th>What happens</th></tr>
+    <tr><td>Resolve</td><td>host → Passbolt resource id (an <code>#&nbsp;pssh:</code> comment, or a URI match; ambiguous matches ask)</td></tr>
+    <tr><td>Fetch</td><td>one authenticated <code>passbolt</code> session per run</td></tr>
+    <tr><td>Deliver</td><td>pssh re-execs itself as <code>SSH_ASKPASS</code> and <code>exec</code>s the real <code>ssh</code></td></tr>
+  </table>
+</div>
+
+<footer>
+  Built with Go · <a href="https://github.com/jgsqware/pssh">github.com/jgsqware/pssh</a>
+</footer>
+</body>
+</html>

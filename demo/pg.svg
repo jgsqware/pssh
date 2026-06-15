@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" width="760" height="340" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">
+  <defs>
+    <clipPath id="pgtype">
+      <rect x="46" y="66" height="22" width="0">
+        <animate attributeName="width" dur="7s" repeatCount="indefinite"
+          values="0;0;207;207;0;0" keyTimes="0;0.057;0.229;0.943;0.97;1"/>
+      </rect>
+    </clipPath>
+  </defs>
+
+  <rect x="6" y="6" width="748" height="328" rx="10" fill="#0d1117" stroke="#30363d"/>
+  <circle cx="30" cy="30" r="6" fill="#ff5f56"/>
+  <circle cx="50" cy="30" r="6" fill="#ffbd2e"/>
+  <circle cx="70" cy="30" r="6" fill="#27c93f"/>
+  <text x="380" y="34" fill="#6e7681" text-anchor="middle" font-size="12">pssh pg</text>
+
+  <!-- command (typewriter) -->
+  <text x="26" y="84" fill="#3fb950">$</text>
+  <g clip-path="url(#pgtype)">
+    <text x="46" y="84" fill="#c9d1d9">pssh pg app-prod-1</text>
+  </g>
+
+  <g opacity="0"><text x="26" y="116" fill="#6e7681">[pssh] <tspan fill="#8b949e">password: 18 byte(s) → ssh authenticated</tspan></text>
+    <animate attributeName="opacity" dur="7s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.264;0.271;0.943;0.97;1"/></g>
+
+  <!-- container picker -->
+  <g opacity="0">
+    <text x="26" y="148" fill="#6e7681">Filter containers…</text>
+    <text x="26" y="174" fill="#d2a8ff">▶ orders-db<tspan fill="#8b949e">      postgres:16    Up 3 days</tspan></text>
+    <text x="26" y="196" fill="#6e7681">  redis        redis:7        Up 3 days</text>
+    <animate attributeName="opacity" dur="7s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.350;0.357;0.943;0.97;1"/>
+  </g>
+
+  <g opacity="0"><text x="26" y="228" fill="#56d4dd">→ Tunnel: 127.0.0.1:55432 → 10.0.0.42:5432</text>
+    <animate attributeName="opacity" dur="7s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.464;0.471;0.943;0.97;1"/></g>
+
+  <g opacity="0"><text x="26" y="256" fill="#ff79c6">Opening orders as orders @ 127.0.0.1:55432</text>
+    <animate attributeName="opacity" dur="7s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.550;0.557;0.943;0.97;1"/></g>
+
+  <g opacity="0">
+    <rect x="26" y="272" width="220" height="30" rx="6" fill="none" stroke="#bc8cff"/>
+    <text x="40" y="292" fill="#d2a8ff">▸ lazysql · orders</text>
+    <animate attributeName="opacity" dur="7s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.650;0.657;0.943;0.97;1"/>
+  </g>
+</svg>

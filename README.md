@@ -111,6 +111,8 @@ pssh pg app-prod-1          # pick a container, tunnel its DB, open lazysql
 pssh pg -t app-prod-1 5544  # tunnel-only on an explicit local port
 ```
 
+<p align="center"><img src="demo/pg.svg" alt="pssh pg demo" width="760"></p>
+
 Add your own: drop a `pssh-<name>` executable in `~/.config/pssh/plugins`.
 
 ## Development
