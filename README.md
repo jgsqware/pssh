@@ -40,6 +40,8 @@ connect to an unlinked host it lets you pick a resource and remembers it.
 ```sh
 # from a clone
 git clone https://github.com/jgsqware/pssh && cd pssh
+mise run setup        # builds pssh into ~/.local/bin AND installs bundled plugins
+# or just the binary:
 go build -o ~/.local/bin/pssh .       # or: mise run install
 
 # or with go install (private repo)
@@ -90,14 +92,26 @@ Set via environment or `~/.config/pssh/config` (`KEY=value` lines):
 
 ## Plugins
 
-Drop an executable named `pssh-<name>` in `~/.config/pssh/plugins` (or on `PATH`).
-`pssh <name> <host>` resolves the host's password, exports the askpass env, and
-runs the plugin — its own `ssh` calls authenticate automatically. Example:
+`pssh <name> <host>` runs an executable named `pssh-<name>` (from
+`~/.config/pssh/plugins` or `PATH`) with the host's password wired up via the
+askpass env — the plugin's own `ssh` calls authenticate automatically, with no
+plugin-side code.
+
+This repo bundles one in [`plugins/`](plugins/):
+
+| Plugin | What `pssh <name> <host>` does |
+|--------|--------------------------------|
+| **`pg`** | pick a remote Docker container, extract its DB connection string, tunnel it locally, and open [`lazysql`](https://github.com/jorgerojas26/lazysql). Needs `gum`, `jq`, `lazysql`. |
+
+Install the bundled plugins (symlinks them into the plugin dir):
 
 ```sh
-ln -s ~/.local/bin/ssh-lazysql ~/.config/pssh/plugins/pssh-pg
-pssh pg app-prod-1     # pick a container, tunnel its DB, open lazysql
+mise run install-plugins        # or `mise run setup` for binary + plugins
+pssh pg app-prod-1          # pick a container, tunnel its DB, open lazysql
+pssh pg -t app-prod-1 5544  # tunnel-only on an explicit local port
 ```
+
+Add your own: drop a `pssh-<name>` executable in `~/.config/pssh/plugins`.
 
 ## Development
 

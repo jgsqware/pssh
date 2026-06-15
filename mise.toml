@@ -15,6 +15,24 @@ run = "go build -o $BIN ."
 description = "Install pssh to ~/.local/bin (shadows the legacy pssh.sh on PATH)"
 run = "go build -o $HOME/.local/bin/pssh ."
 
+[tasks.install-plugins]
+description = "Symlink bundled plugins (plugins/pssh-*) into the pssh plugin dir"
+run = '''
+root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+dir="${PSSH_PLUGIN_DIR:-$HOME/.config/pssh/plugins}"
+mkdir -p "$dir"
+for p in "$root"/plugins/pssh-*; do
+  [ -f "$p" ] || continue
+  chmod +x "$p"
+  ln -sf "$p" "$dir/$(basename "$p")"
+  echo "linked $(basename "$p") -> $p"
+done
+'''
+
+[tasks.setup]
+description = "Install the pssh binary and the bundled plugins"
+depends = ["install", "install-plugins"]
+
 [tasks.test]
 description = "Run all tests"
 run = "go test ./..."

@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# pssh-pg (a.k.a. ssh-lazysql) — pick a remote Docker container over SSH, extract
+# its DB connection string, tunnel the DB locally, open lazysql against it.
+#
+# As a pssh plugin:  pssh pg <ssh-host> [local-port]   (pssh supplies the SSH
+# password via askpass). Standalone:  pssh-pg <ssh-host> [local-port].
+# Requires: gum, jq, ssh, lazysql.
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: ssh-lazysql [-t|--tunnel-only] <ssh-host> [local-port]
+  -t, --tunnel-only   open the tunnel, print the connection URL, and keep it
+                      open until Ctrl-C — do NOT launch lazysql.
+EOF
+}
+
+tunnel_only=0
+pos=()
+for a in "$@"; do
+  case "$a" in
+    -t|--tunnel-only) tunnel_only=1 ;;
+    -h|--help)        usage; exit 0 ;;
+    -*)               echo "unknown option: $a" >&2; usage; exit 1 ;;
+    *)                pos+=("$a") ;;
+  esac
+done
+ssh_host="${pos[0]:-}"
+[[ -n "$ssh_host" ]] || { usage; exit 1; }
+port_explicit=0
+if [[ -n "${pos[1]:-}" ]]; then local_port="${pos[1]}"; port_explicit=1; else local_port=55432; fi
+
+need() { command -v "$1" >/dev/null || { echo "missing: $1" >&2; exit 1; }; }
+need gum; need jq; need ssh
+(( tunnel_only )) || need lazysql
+
+# Run history: remember (host, container, connection, port) so a later hop to the
+# same host can replay the previous pick instead of re-browsing every time.
+hist_file="${XDG_STATE_HOME:-$HOME/.local/state}/ssh-lazysql/runs"
+record_run() {   # $1 = connection name (may be empty)
+  local cn="${1:--}" tmp; mkdir -p "${hist_file%/*}"
+  tmp=$(mktemp)
+  { printf '%s\t%s\t%s\t%s\n' "$ssh_host" "$container" "$cn" "$local_port"
+    [[ -f "$hist_file" ]] && grep -vF "$ssh_host"$'\t'"$container"$'\t'"$cn"$'\t' "$hist_file"
+  } 2>/dev/null | head -n 100 >"$tmp" || true
+  mv "$tmp" "$hist_file"
+}
+
+container=""; presel_conn=""
+
+# Set SSH_LAZYSQL_DEBUG=1 to trace the connection with ssh -vvv.
+ssh_opts=(-o ConnectTimeout=15)
+[[ -n "${SSH_LAZYSQL_DEBUG:-}" ]] && ssh_opts+=(-vvv)
+
+# 0. Open ONE multiplexed master connection up-front. The password (if any) is
+#    asked here, once, on a real tty — before any command substitution or gum
+#    TUI grabs the terminal. Every later ssh call reuses this socket without
+#    re-authenticating, and the tunnel is added to the same master.
+ctl=$(mktemp -u /tmp/sshlsql.XXXXXX)
+cleanup() { ssh -S "$ctl" -O exit "$ssh_host" 2>/dev/null || true; }
+trap cleanup EXIT INT TERM
+
+echo "→ Connecting to $ssh_host…" >&2
+ssh "${ssh_opts[@]}" -fN -M -S "$ctl" "$ssh_host"
+rssh() { ssh "${ssh_opts[@]}" -S "$ctl" "$ssh_host" "$@"; }   # remote cmd over the master
+
+# 1a. Offer previous runs for this host first; Esc/nothing → fall through to fetch.
+mapfile -t prior < <(grep -F "$ssh_host"$'\t' "$hist_file" 2>/dev/null || true)
+if (( ${#prior[@]} )); then
+  disp=()
+  for rec in "${prior[@]}"; do
+    IFS=$'\t' read -r _ c cn p <<<"$rec"
+    disp+=("$c · ${cn/#-/(full)} · :$p")
+  done
+  choice=$(printf '%s\n' "${disp[@]}" | gum choose --header "Previous runs on $ssh_host (Esc = fetch fresh):" || true)
+  if [[ -n "$choice" ]]; then
+    for i in "${!disp[@]}"; do
+      [[ "${disp[$i]}" == "$choice" ]] && { IFS=$'\t' read -r _ container presel_conn rp <<<"${prior[$i]}"; break; }
+    done
+    [[ "$presel_conn" == "-" ]] && presel_conn=""
+    (( port_explicit )) || local_port="$rp"
+  fi
+fi
+
+# 1b. Pick a container (fuzzy-filterable) unless a previous run was replayed.
+if [[ -z "$container" ]]; then
+  echo "→ Fetching containers on $ssh_host…" >&2
+  container=$(
+    rssh "docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'" \
+      | gum filter --placeholder "Filter containers…" --indicator "▶" \
+      | cut -f1
+  )
+fi
+[[ -z "$container" ]] && { echo "Aborted." >&2; exit 1; }
+
+# 2. Grab env, find connection string(s).
+#    `docker exec env` captures runtime env (vars injected by the entrypoint or
+#    the app), which `inspect .Config.Env` misses — fall back to inspect only if
+#    exec is unavailable (stopped container / no env binary).
+pattern="${SSH_LAZYSQL_ENV_PATTERN:-connectionstring}"
+mapfile -t env_lines < <(
+  rssh "docker exec $container env 2>/dev/null || docker inspect $container --format '{{range .Config.Env}}{{println .}}{{end}}'"
+)
+mapfile -t conns < <(printf '%s\n' "${env_lines[@]}" | grep -iE "$pattern" || true)
+if (( ${#conns[@]} == 0 )); then
+  echo "No env matching /$pattern/i in $container." >&2
+  echo "Env var names present:" >&2
+  printf '%s\n' "${env_lines[@]}" | sed -E 's/=.*//' | sort -u | sed 's/^/  /' >&2
+  echo "Override the search with: SSH_LAZYSQL_ENV_PATTERN=<regex> ssh-lazysql …" >&2
+  exit 1
+fi
+
+# 3. Build the field map (db[...]) from one of two shapes:
+#    a) a single full string:  VAR=Host=db;Port=5432;Database=...;Username=...
+#    b) ASP.NET decomposed keys: ConnectionStrings__<name>__<field>=<value>
+declare -A db                    # final lowercased field -> value
+declare -A grp                   # "<conn>|<field>" -> value  (decomposed form)
+conn_names=()                    # distinct <conn> names, in first-seen order
+full_strings=()                  # lines whose value is a whole connection string
+
+for line in "${conns[@]}"; do
+  key="${line%%=*}"; val="${line#*=}"
+  lkey="${key,,}"
+  if [[ "$val" == *";"*"="* ]]; then            # value is itself Key=val;Key=val
+    full_strings+=("$line"); continue
+  fi
+  rest="${lkey#connectionstrings__}"            # main__server  (if prefix present)
+  if [[ "$rest" != "$lkey" && "$rest" == *"__"* ]]; then
+    conn="${rest%__*}"; field="${rest##*__}"
+    [[ -n "${grp[$conn|__seen]:-}" ]] || { conn_names+=("$conn"); grp[$conn|__seen]=1; }
+    grp["$conn|$field"]="$val"
+  fi
+done
+
+chosen_conn=""
+if (( ${#conn_names[@]} > 0 )); then
+  # Decomposed form wins. Reuse the replayed connection if it still exists,
+  # otherwise pick it (only prompting when there's more than one).
+  if [[ -n "$presel_conn" ]] && printf '%s\n' "${conn_names[@]}" | grep -qxF "$presel_conn"; then
+    conn="$presel_conn"
+  elif (( ${#conn_names[@]} > 1 )); then
+    conn=$(printf '%s\n' "${conn_names[@]}" | gum choose --header "Connection:")
+  else
+    conn="${conn_names[0]}"
+  fi
+  chosen_conn="$conn"
+  for kv in "${!grp[@]}"; do
+    [[ "$kv" == "$conn|"* && "$kv" != *"|__seen" ]] || continue
+    db["${kv#*|}"]="${grp[$kv]}"
+  done
+else
+  # Single full connection string (choose if several).
+  if (( ${#full_strings[@]} > 1 )); then
+    chosen=$(printf '%s\n' "${full_strings[@]}" | gum choose --header "Multiple connection strings:")
+  else
+    chosen="${full_strings[0]:-${conns[0]}}"
+  fi
+  cs="${chosen#*=}"                              # strip "VAR=" prefix
+  while IFS= read -r pair; do
+    [[ -z "$pair" ]] && continue
+    k="${pair%%=*}"; v="${pair#*=}"
+    k="${k#"${k%%[![:space:]]*}"}"               # trim leading space
+    k="${k%"${k##*[![:space:]]}"}"               # trim trailing space
+    db["${k,,}"]="$v"
+  done < <(tr ';' '\n' <<<"$cs")
+fi
+
+# Resolve fields with Npgsql key aliases; fail loudly on missing essentials.
+# Always returns 0 — a missing optional field (e.g. port) must not trip `set -e`
+# when used as `var=$(pick …)`.
+pick() { local k; for k in "$@"; do [[ -n "${db[$k]:-}" ]] && { printf '%s' "${db[$k]}"; return 0; }; done; return 0; }
+db_host=$(pick host server "data source"); db_port=$(pick port); db_port="${db_port:-5432}"
+db_name=$(pick database "initial catalog"); db_user=$(pick username "user id" userid user uid)
+db_pass_raw=$(pick password pwd)
+
+for var in db_host:host db_name:database db_user:username; do
+  name="${var%%:*}"; key="${var##*:}"
+  [[ -n "${!name}" ]] || {
+    echo "connection has no '$key'. Parsed fields: ${!db[*]}" >&2; exit 1
+  }
+done
+
+db_pass=$(jq -rn --arg p "$db_pass_raw" '$p|@uri')   # URL-encode pour l'URL postgres://
+
+record_run "$chosen_conn"   # remember this pick for next time on this host
+
+# 4. Add the tunnel to the existing master (no re-auth; torn down on exit).
+echo "→ Tunnel: 127.0.0.1:$local_port → $db_host:$db_port (via $ssh_host)" >&2
+ssh -O forward -S "$ctl" -L "${local_port}:${db_host}:${db_port}" "$ssh_host"
+
+# 5. Either hand the tunnel to lazysql, or keep it open for any other client.
+url="postgres://${db_user}:${db_pass}@127.0.0.1:${local_port}/${db_name}?sslmode=disable"
+if (( tunnel_only )); then
+  gum style --foreground 212 "Tunnel open — $db_name as $db_user @ 127.0.0.1:$local_port"
+  echo "$url"
+  echo "→ Ctrl-C to close the tunnel." >&2
+  while true; do sleep 86400; done   # block; the EXIT trap tears the tunnel down
+else
+  gum style --foreground 212 "Opening $db_name as $db_user @ 127.0.0.1:$local_port"
+  lazysql "$url"
+fi
