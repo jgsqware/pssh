@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Minimal stand-in for the `passbolt` CLI, used only by the docker test so the
+# full pssh flow can run without a real Passbolt server. It returns one canned
+# resource whose password matches the test user's unix password.
+set -euo pipefail
+
+id="${FAKE_PB_ID:-test-resource-id}"
+pw="${FAKE_PB_PASSWORD:-Pa55w0rd-x9}"
+
+want() { # exact-match any standalone argument
+  local target="$1"; shift
+  for a in "$@"; do [ "$a" = "$target" ] && return 0; done
+  return 1
+}
+
+if want --version "$@"; then
+  echo "passbolt version 0.0.0-fake"
+  exit 0
+fi
+
+if want get "$@"; then
+  printf '{"id":"%s","name":"testbox","username":"tester","uri":"127.0.0.1","password":"%s"}\n' "$id" "$pw"
+  exit 0
+fi
+
+if want list "$@"; then
+  printf '[{"id":"%s","name":"testbox","username":"tester","uri":"127.0.0.1"}]\n' "$id"
+  exit 0
+fi
+
+exit 0
