@@ -1,5 +1,31 @@
 # pssh — Passbolt-aware SSH launcher
 
+## Implementation: Go (the shell script is legacy)
+pssh is now a **Go program** (pure stdlib, no third-party deps). It execs the
+real `ssh`, `gum`, and `passbolt` CLIs and parses the ssh config itself. The
+original POSIX shell version is kept as `pssh.sh` for reference only.
+
+- Build:   `go build -o bin/pssh .`   ·   Install: `go build -o ~/.local/bin/pssh .`
+- Test:    `go test ./...`   ·   Vet: `go vet ./...`
+- Layout:
+  - `main.go` — entry; askpass mode + `__clipclear` helper + dispatch
+  - `internal/config` — env + `~/.config/pssh/config` (KEY=VALUE) loader
+  - `internal/sshcfg` — ssh config parse, Include expansion (depth-capped),
+    comment store (atomic, symlink-preserving), `ssh -G` HostName inference
+  - `internal/passbolt` — passbolt CLI wrapper; **caches the resource list** so a
+    run authenticates at most twice (probe/list + get); error classification
+  - `internal/clip` — clipboard detect + **native UTF-16LE** encode for clip.exe
+    (no iconv dependency)
+  - `internal/ui` — gum pickers + validated numbered fallback, styled output
+  - `internal/app` — orchestration: resolve, link, connect, plugins, doctor,
+    delivery (askpass/clipboard)
+- Improvements over the shell version (from the code review): single Passbolt
+  session via the list cache (kills the per-call re-auth flakiness); empty
+  askpass prompt now declines (no misdelivery); validated numeric picker input;
+  atomic symlink-preserving config writes; Include recursion guard; real error
+  handling instead of `set -e` gotchas. The shell-only deps `jq` and `iconv` are
+  gone (done natively in Go).
+
 ## Goal
 A wrapper around `ssh` that lets you pick a host from your SSH config via a `gum`
 fuzzy picker, resolves the Passbolt password linked to that host, copies it to
